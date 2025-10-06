@@ -2417,153 +2417,230 @@ document.addEventListener('DOMContentLoaded', function() {
         // ANONYMOUS MESSAGE FUNCTIONALITY WITH FIRESTORE
         // ==================================================
         
-        const anonymousForm = document.getElementById('anonymous-form');
-        const messageList = document.getElementById('message-list');
-        const noMessages = document.getElementById('no-messages');
-        const messageInput = document.getElementById('anonymous-message');
-        const sendBtn = anonymousForm?.querySelector('.send-btn');
+console.log("Firebase initialized:", app.name);
 
-        // Fungsi untuk menampilkan pesan dalam format chat
-        function displayMessages(messages) {
-            if (!messageList) return;
-            
-            messageList.innerHTML = '';
-            
-            if (messages.length === 0) {
-                noMessages.style.display = 'block';
-                messageList.appendChild(noMessages);
-                return;
-            }
-            
-            noMessages.style.display = 'none';
-            
-            // Tampilkan semua pesan
-            messages.forEach((message) => {
-                const messageItem = document.createElement('div');
-                messageItem.className = `message-item sent`;
-                
-                const messageBubble = document.createElement('div');
-                messageBubble.className = 'message-bubble';
-                messageBubble.textContent = message.content;
-                
-                const messageTime = document.createElement('div');
-                messageTime.className = 'message-time';
-                
-                // Format timestamp dari Firestore
-                if (message.timestamp && message.timestamp.toDate) {
-                    messageTime.textContent = message.timestamp.toDate().toLocaleTimeString('id-ID', {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    });
-                } else {
-                    messageTime.textContent = 'Baru saja';
-                }
-                
-                messageItem.appendChild(messageBubble);
-                messageItem.appendChild(messageTime);
-                
-                messageList.appendChild(messageItem);
-            });
-            
-            // Scroll ke bawah
-            messageList.scrollTop = messageList.scrollHeight;
+// Fungsi utama untuk anonymous messages
+function initializeAnonymousMessages() {
+    console.log("Initializing anonymous messages...");
+    
+    const messageForm = document.getElementById('anonymous-form');
+    const messageInput = document.getElementById('anonymous-message');
+    const messageList = document.getElementById('message-list');
+    const noMessages = document.getElementById('no-messages');
+
+    if (!messageForm || !messageList) {
+        console.error("Required elements not found!");
+        return;
+    }
+
+    const sendBtn = messageForm.querySelector('.send-btn');
+
+    // Tampilkan loading indicator
+    noMessages.innerHTML = '<i class="fas fa-spinner fa-spin"></i><p>Memuat pesan...</p>';
+
+    // FUNGSI UNTUK MENAMPILKAN PESAN
+    function displayMessages(messages) {
+        console.log("Displaying messages:", messages.length);
+        
+        messageList.innerHTML = '';
+        
+        if (messages.length === 0) {
+            noMessages.innerHTML = '<i class="fas fa-inbox"></i><p>Belum ada pesan yang dikirim. Jadilah yang pertama!</p>';
+            noMessages.style.display = 'block';
+            messageList.appendChild(noMessages);
+            return;
         }
+        
+        noMessages.style.display = 'none';
+        
+        // Urutkan pesan dari yang terlama ke terbaru
+        messages.sort((a, b) => {
+            const timeA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
+            const timeB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
+            return timeA - timeB;
+        });
 
-        // Fungsi untuk mendengarkan pesan realtime dari Firestore
-        function listenToMessages() {
-            if (!db) return;
+        // Tampilkan semua pesan
+        messages.forEach((message) => {
+            const messageItem = document.createElement('div');
+            messageItem.className = 'message-item received';
             
+            const messageBubble = document.createElement('div');
+            messageBubble.className = 'message-bubble';
+            messageBubble.textContent = message.content;
+            
+            const messageTime = document.createElement('div');
+            messageTime.className = 'message-time';
+            
+            // Format waktu
+            let displayTime = 'Baru saja';
+            if (message.timestamp) {
+                try {
+                    if (message.timestamp.toDate) {
+                        displayTime = message.timestamp.toDate().toLocaleTimeString('id-ID', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            day: 'numeric',
+                            month: 'short'
+                        });
+                    } else if (message.timestamp instanceof Date) {
+                        displayTime = message.timestamp.toLocaleTimeString('id-ID', {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        });
+                    }
+                } catch (error) {
+                    console.log("Error formatting time:", error);
+                }
+            }
+            messageTime.textContent = displayTime;
+            
+            messageItem.appendChild(messageBubble);
+            messageItem.appendChild(messageTime);
+            messageList.appendChild(messageItem);
+        });
+        
+        // Scroll ke bawah
+        messageList.scrollTop = messageList.scrollHeight;
+    }
+
+    // FUNGSI UNTUK MENDENGARKAN PESAN DARI FIRESTORE
+    function listenToMessages() {
+        console.log("Setting up Firestore listener...");
+        
+        try {
+            // Gunakan onSnapshot untuk realtime updates
             db.collection("anonymous_messages")
-                .orderBy("timestamp", "desc")
+                .orderBy("timestamp", "asc") // Urutkan dari yang terlama
                 .onSnapshot((snapshot) => {
                     const messages = [];
                     snapshot.forEach((doc) => {
-                        messages.push({ id: doc.id, ...doc.data() });
+                        messages.push({
+                            id: doc.id,
+                            ...doc.data()
+                        });
                     });
+                    
+                    console.log("Received messages from Firestore:", messages.length);
                     displayMessages(messages);
+                    
                 }, (error) => {
-                    console.error("Error listening to messages: ", error);
-                    // Fallback ke localStorage jika Firestore error
+                    console.error("Error listening to Firestore:", error);
+                    // Fallback ke localStorage
                     loadMessagesFromLocalStorage();
                 });
+                
+        } catch (error) {
+            console.error("Firestore setup error:", error);
+            loadMessagesFromLocalStorage();
         }
+    }
 
-        // Fallback ke localStorage
-        function loadMessagesFromLocalStorage() {
-            const savedMessages = localStorage.getItem('anonymousMessages');
-            if (savedMessages) {
+    // FALLBACK KE LOCALSTORAGE
+    function loadMessagesFromLocalStorage() {
+        console.log("Using localStorage fallback");
+        const savedMessages = localStorage.getItem('ecostic_anonymous_messages');
+        if (savedMessages) {
+            try {
                 const messages = JSON.parse(savedMessages);
                 displayMessages(messages);
+            } catch (error) {
+                console.error("Error parsing localStorage messages:", error);
             }
         }
+    }
 
-        // Auto-resize textarea
-        if (messageInput) {
-            messageInput.addEventListener('input', function() {
-                this.style.height = 'auto';
-                this.style.height = (this.scrollHeight) + 'px';
+    // FUNGSI UNTUK MENGIRIM PESAN
+    async function sendMessageToFirestore(messageContent) {
+        try {
+            console.log("Sending message to Firestore...");
+            
+            const docRef = await db.collection("anonymous_messages").add({
+                content: messageContent,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                sender: "anonymous"
             });
+            
+            console.log("Message sent successfully with ID:", docRef.id);
+            return true;
+            
+        } catch (error) {
+            console.error("Error sending to Firestore:", error);
+            return false;
         }
+    }
 
-        // Handle form submission
-        if (anonymousForm) {
-            anonymousForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                
-                const messageContent = messageInput.value.trim();
-                
-                if (!messageContent) {
-                    alert('Harap isi pesan Anda!');
-                    return;
-                }
-                
-                // Disable form sementara
-                sendBtn.disabled = true;
-                sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-                
-                try {
-                    // Simpan pesan ke Firestore
-                    await db.collection("anonymous_messages").add({
-                        content: messageContent,
-                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                        sender: "anonymous"
-                    });
-                    
-                    // Reset form
-                    anonymousForm.reset();
-                    messageInput.style.height = 'auto';
-                    
-                } catch (error) {
-                    console.error("Error sending message: ", error);
-                    // Fallback ke localStorage jika Firestore error
-                    const savedMessages = localStorage.getItem('anonymousMessages') || '[]';
-                    const messages = JSON.parse(savedMessages);
-                    
-                    const newMessage = {
-                        content: messageContent,
-                        time: new Date().toLocaleString('id-ID', {
-                            hour: '2-digit',
-                            minute: '2-digit'
-                        }),
-                        sender: 'sent'
-                    };
-                    
-                    messages.push(newMessage);
-                    localStorage.setItem('anonymousMessages', JSON.stringify(messages));
-                    displayMessages(messages);
-                    
-                    alert('Pesan berhasil dikirim (mode offline)');
-                } finally {
-                    // Enable form kembali
-                    sendBtn.disabled = false;
-                    sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i>';
-                    messageInput.focus();
-                }
-            });
+    // FALLBACK SAVE KE LOCALSTORAGE
+    function saveMessageToLocalStorage(messageContent) {
+        const savedMessages = JSON.parse(localStorage.getItem('ecostic_anonymous_messages') || '[]');
+        const newMessage = {
+            content: messageContent,
+            timestamp: new Date(),
+            sender: 'anonymous'
+        };
+        savedMessages.push(newMessage);
+        localStorage.setItem('ecostic_anonymous_messages', JSON.stringify(savedMessages));
+        return newMessage;
+    }
+
+    // AUTO-RESIZE TEXTAREA
+    messageInput.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+    });
+
+    // HANDLE FORM SUBMISSION
+    messageForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const messageContent = messageInput.value.trim();
+        
+        if (!messageContent) {
+            alert('Harap isi pesan Anda!');
+            return;
         }
+        
+        if (messageContent.length > 500) {
+            alert('Pesan terlalu panjang. Maksimal 500 karakter.');
+            return;
+        }
+        
+        // Disable form sementara
+        sendBtn.disabled = true;
+        sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        
+        try {
+            // Coba kirim ke Firestore dulu
+            const firestoreSuccess = await sendMessageToFirestore(messageContent);
+            
+            if (!firestoreSuccess) {
+                // Fallback ke localStorage
+                saveMessageToLocalStorage(messageContent);
+                alert('Pesan berhasil dikirim (mode offline)');
+            }
+            
+            // Reset form
+            messageForm.reset();
+            messageInput.style.height = 'auto';
+            
+        } catch (error) {
+            console.error("Error in form submission:", error);
+            alert('Terjadi error saat mengirim pesan. Coba lagi.');
+        } finally {
+            // Enable form kembali
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i>';
+        }
+    });
+
+    // MULAI MENDENGARKAN PESAN
+    listenToMessages();
+}
+
     </script>
 
 
 </body>
 
 </html>
+
